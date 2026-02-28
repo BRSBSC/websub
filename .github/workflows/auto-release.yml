@@ -31,7 +31,8 @@ jobs:
       - name: Pack artifact
         id: pack
         run: |
-          TAG="auto-${GITHUB_SHA::7}"
+          RUN_NUMBER_PADDED="$(printf "%08d" "${GITHUB_RUN_NUMBER}")"
+          TAG="auto-r${RUN_NUMBER_PADDED}-${GITHUB_SHA::7}"
           ZIP="websum-${TAG}.zip"
           (cd dist && zip -r "../$ZIP" .)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
