@@ -8,6 +8,7 @@ export const DEFAULT_TEMPLATE_IDS = [
 
 export type DefaultTemplateId = (typeof DEFAULT_TEMPLATE_IDS)[number];
 export type SummaryTemplateId = DefaultTemplateId | "custom";
+export type ThemePreference = "system" | "light" | "dark";
 
 export type PromptTemplate = {
   id: SummaryTemplateId;
@@ -24,6 +25,7 @@ export type Settings = {
   summaryTemplateId: SummaryTemplateId;
   lastDefaultTemplateId: DefaultTemplateId;
   customSystemPrompt: string;
+  themePreference: ThemePreference;
 };
 
 export type PageContent = {
@@ -75,7 +77,8 @@ export const DEFAULT_SETTINGS: Settings = {
   outputLanguage: "zh-CN",
   summaryTemplateId: "tldr_5_bullets",
   lastDefaultTemplateId: "tldr_5_bullets",
-  customSystemPrompt: ""
+  customSystemPrompt: "",
+  themePreference: "system"
 };
 
 export const MAX_CONTENT_LENGTH = 12_000;
@@ -88,4 +91,8 @@ export function isDefaultTemplateId(value: string): value is DefaultTemplateId {
 
 export function isSummaryTemplateId(value: string): value is SummaryTemplateId {
   return value === "custom" || isDefaultTemplateId(value);
+}
+
+export function isThemePreference(value: string): value is ThemePreference {
+  return value === "system" || value === "light" || value === "dark";
 }

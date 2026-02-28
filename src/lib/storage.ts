@@ -5,6 +5,7 @@ import {
   MAX_HISTORY_RECORDS,
   isDefaultTemplateId,
   isSummaryTemplateId,
+  isThemePreference,
   type DefaultTemplateId,
   type Settings,
   type SummaryRecord
@@ -80,6 +81,16 @@ function resolveLastDefaultTemplateId(
     : DEFAULT_SETTINGS.lastDefaultTemplateId;
 }
 
+function resolveThemePreference(value: Partial<Settings> | undefined): Settings["themePreference"] {
+  const rawThemePreference = typeof value?.themePreference === "string"
+    ? value.themePreference
+    : DEFAULT_SETTINGS.themePreference;
+
+  return isThemePreference(rawThemePreference)
+    ? rawThemePreference
+    : DEFAULT_SETTINGS.themePreference;
+}
+
 function sanitizeSettings(value: Partial<Settings> | undefined): Settings {
   const summaryTemplateId = resolveSummaryTemplateId(value);
   const lastDefaultTemplateId = resolveLastDefaultTemplateId(value, summaryTemplateId);
@@ -91,7 +102,8 @@ function sanitizeSettings(value: Partial<Settings> | undefined): Settings {
     outputLanguage: "zh-CN",
     summaryTemplateId,
     lastDefaultTemplateId,
-    customSystemPrompt: normalizeCustomSystemPrompt(value?.customSystemPrompt)
+    customSystemPrompt: normalizeCustomSystemPrompt(value?.customSystemPrompt),
+    themePreference: resolveThemePreference(value)
   };
 }
 

@@ -59,24 +59,29 @@ export function SummaryPage() {
   };
 
   return (
-    <section className="card">
-      <div className="row-between">
-        <h2>当前页面总结</h2>
+    <section className="panel summary-panel">
+      <header className="panel-head summary-headline">
+        <div>
+          <h2>当前页面总结</h2>
+          <p>一键抽取正文并按模板输出中文总结。</p>
+        </div>
         <button type="button" className="primary-btn" onClick={summarizeCurrentPage} disabled={loading}>
           {loading ? "总结中..." : "总结当前页面"}
         </button>
-      </div>
+      </header>
 
       {error ? <p className="status error">{error}</p> : null}
 
       {summary ? (
-        <article className="summary-block">
-          <div className="summary-head">
-            <div>
-              <h3>{pageTitle}</h3>
-              <a href={sourceUrl} target="_blank" rel="noreferrer">
-                {sourceUrl}
-              </a>
+        <article className="summary-result">
+          <div className="summary-result-head">
+            <div className="summary-source">
+              <h3>{pageTitle || "未命名页面"}</h3>
+              {sourceUrl ? (
+                <a href={sourceUrl} target="_blank" rel="noreferrer" className="summary-link">
+                  {sourceUrl}
+                </a>
+              ) : null}
             </div>
             <button type="button" className="ghost-btn" onClick={copySummary}>
               {copied ? "已复制" : "复制全文"}
@@ -85,7 +90,10 @@ export function SummaryPage() {
           <MarkdownContent markdown={summary} />
         </article>
       ) : (
-        <p className="hint">点击“总结当前页面”后，这里会按你设置的模板输出中文总结。</p>
+        <section className="empty-state" aria-live="polite">
+          <h3>等待生成总结</h3>
+          <p>点击“总结当前页面”后，这里会展示完整结果与来源信息。</p>
+        </section>
       )}
     </section>
   );
