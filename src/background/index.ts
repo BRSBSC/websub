@@ -3,12 +3,16 @@ import { connectKimiInteractive, invalidateKimiTokens } from "../lib/kimiAuth";
 import { getKimiDisplayModel, summarizeWithKimi } from "../lib/kimiSummarize";
 import { fetchModels, summarizePage } from "../lib/openai";
 import { resolveEffectiveTemplateId } from "../lib/prompt";
-import { addSummaryRecord, getKimiAuthStatus } from "../lib/storage";
+import { connectQwenInteractive, invalidateQwenTokens } from "../lib/qwenAuth";
+import { getQwenDisplayModel, summarizeWithQwen } from "../lib/qwenSummarize";
+import { addSummaryRecord, getKimiAuthStatus, getQwenAuthStatus } from "../lib/storage";
+import { getAuthInvalidMessage, isWebProvider } from "../lib/webProvider";
 import type {
   FetchModelsResult,
   KimiAuthStatus,
   PageContent,
   RuntimeMessage,
+  WebProviderType,
   RuntimeResponse,
   Settings,
   SummarizeResult,
@@ -21,8 +25,6 @@ type SidePanelApi = {
 };
 
 type MessageResult = FetchModelsResult | SummarizeResult | KimiAuthStatus | null;
-
-const KIMI_AUTH_INVALID_MESSAGE = "登录状态失效，请重新连接 Kimi";
 const sidePanelApi = (chrome as unknown as { sidePanel?: SidePanelApi }).sidePanel;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -77,16 +79,47 @@ async function handleMessage(message: RuntimeMessage): Promise<MessageResult> {
     case "SUMMARIZE_ACTIVE_TAB": {
       return summarizeActiveTab(message.payload.settings);
     }
+    case "CONNECT_WEB_PROVIDER": {
+      return connectWebProvider(message.payload.provider);
+    }
+    case "GET_WEB_PROVIDER_AUTH_STATUS": {
+      return getWebProviderStatus(message.payload.provider);
+    }
     case "CONNECT_KIMI": {
-      return connectKimiInteractive();
+      return connectWebProvider("kimi_web");
     }
     case "GET_KIMI_AUTH_STATUS": {
-      return getKimiAuthStatus();
+      return getWebProviderStatus("kimi_web");
     }
     default: {
       throw new AppError("未知消息类型。", { code: "RUNTIME" });
     }
   }
+}
+
+async function connectWebProvider(provider: WebProviderType): Promise<KimiAuthStatus> {
+  if (provider === "kimi_web") {
+    return connectKimiInteractive();
+  }
+
+  return connectQwenInteractive();
+}
+
+async function getWebProviderStatus(provider: WebProviderType): Promise<KimiAuthStatus> {
+  if (provider === "kimi_web") {
+    return getKimiAuthStatus();
+  }
+
+  return getQwenAuthStatus();
+}
+
+async function invalidateWebProvider(provider: WebProviderType): Promise<void> {
+  if (provider === "kimi_web") {
+    await invalidateKimiTokens();
+    return;
+  }
+
+  await invalidateQwenTokens();
 }
 
 async function summarizeActiveTab(settings: Settings): Promise<SummarizeResult> {
@@ -112,17 +145,25 @@ async function summarizeActiveTab(settings: Settings): Promise<SummarizeResult> 
   let summary = "";
   let model = settings.model;
 
-  if (settings.provider === "kimi_web") {
+  if (isWebProvider(settings.provider)) {
     try {
-      summary = await summarizeWithKimi({
-        settings,
-        pageContent
-      });
-      model = getKimiDisplayModel();
+      if (settings.provider === "kimi_web") {
+        summary = await summarizeWithKimi({
+          settings,
+          pageContent
+        });
+        model = getKimiDisplayModel();
+      } else {
+        summary = await summarizeWithQwen({
+          settings,
+          pageContent
+        });
+        model = getQwenDisplayModel();
+      }
     } catch (error) {
       if (error instanceof AppError && error.code === "AUTH") {
-        await invalidateKimiTokens().catch(() => undefined);
-        throw new AppError(KIMI_AUTH_INVALID_MESSAGE, { code: "AUTH" });
+        await invalidateWebProvider(settings.provider).catch(() => undefined);
+        throw new AppError(getAuthInvalidMessage(settings.provider), { code: "AUTH" });
       }
       throw error;
     }

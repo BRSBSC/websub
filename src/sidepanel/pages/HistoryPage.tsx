@@ -14,7 +14,11 @@ function formatTime(isoString: string): string {
 }
 
 function getProviderLabel(provider: ProviderType): string {
-  return provider === "kimi_web" ? "Kimi" : "OpenAI";
+  if (provider === "openai") {
+    return "OpenAI";
+  }
+
+  return provider === "kimi_web" ? "Kimi" : "Qwen 国际版";
 }
 
 export function HistoryPage() {

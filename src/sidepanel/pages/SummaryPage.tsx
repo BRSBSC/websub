@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { sendRuntimeMessage } from "../../lib/runtime";
 import { getSettings } from "../../lib/storage";
-import type { KimiAuthStatus, ProviderType, SummarizeResult } from "../../lib/types";
+import { getWebProviderName } from "../../lib/webProvider";
+import type { ProviderType, SummarizeResult, WebProviderAuthStatus, WebProviderType } from "../../lib/types";
 import { MarkdownContent } from "../components/MarkdownContent";
 
 function getProviderLabel(provider: ProviderType): string {
-  return provider === "kimi_web" ? "Kimi 免 Key" : "OpenAI 兼容";
+  if (provider === "openai") {
+    return "OpenAI 兼容";
+  }
+
+  return provider === "kimi_web" ? "Kimi 免 Key" : "Qwen 国际版 免 Key";
 }
 
 export function SummaryPage() {
@@ -16,14 +21,16 @@ export function SummaryPage() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [providerLabel, setProviderLabel] = useState("");
-  const [showConnectKimiAction, setShowConnectKimiAction] = useState(false);
-  const [connectingKimi, setConnectingKimi] = useState(false);
+  const [showConnectWebProviderAction, setShowConnectWebProviderAction] = useState(false);
+  const [connectingWebProvider, setConnectingWebProvider] = useState(false);
+  const [pendingWebProvider, setPendingWebProvider] = useState<WebProviderType | null>(null);
 
   const summarizeCurrentPage = async () => {
     setLoading(true);
     setError("");
     setCopied(false);
-    setShowConnectKimiAction(false);
+    setShowConnectWebProviderAction(false);
+    setPendingWebProvider(null);
 
     try {
       const settings = await getSettings();
@@ -34,19 +41,24 @@ export function SummaryPage() {
           return;
         }
       } else {
-        const authStatusResponse = await sendRuntimeMessage<KimiAuthStatus>({
-          type: "GET_KIMI_AUTH_STATUS"
+        setPendingWebProvider(settings.provider);
+        const authStatusResponse = await sendRuntimeMessage<WebProviderAuthStatus>({
+          type: "GET_WEB_PROVIDER_AUTH_STATUS",
+          payload: {
+            provider: settings.provider
+          }
         });
 
         if (!authStatusResponse.ok) {
           setError(authStatusResponse.error);
-          setShowConnectKimiAction(true);
+          setShowConnectWebProviderAction(true);
           return;
         }
 
         if (!authStatusResponse.data.connected) {
-          setError("未检测到 Kimi 登录状态，请先连接 Kimi。");
-          setShowConnectKimiAction(true);
+          const providerName = getWebProviderName(settings.provider);
+          setError(`未检测到 ${providerName} 登录状态，请先连接 ${providerName}。`);
+          setShowConnectWebProviderAction(true);
           return;
         }
       }
@@ -58,8 +70,9 @@ export function SummaryPage() {
 
       if (!response.ok) {
         setError(response.error);
-        if (settings.provider === "kimi_web" && response.error.includes("重新连接 Kimi")) {
-          setShowConnectKimiAction(true);
+        if (settings.provider !== "openai" && response.error.includes("重新连接")) {
+          setPendingWebProvider(settings.provider);
+          setShowConnectWebProviderAction(true);
         }
         return;
       }
@@ -75,23 +88,34 @@ export function SummaryPage() {
     }
   };
 
-  const connectKimi = async () => {
-    setConnectingKimi(true);
+  const connectWebProvider = async () => {
+    if (!pendingWebProvider) {
+      return;
+    }
+
+    setConnectingWebProvider(true);
     setError("");
     try {
-      const response = await sendRuntimeMessage<KimiAuthStatus>({
-        type: "CONNECT_KIMI"
+      const response = await sendRuntimeMessage<WebProviderAuthStatus>({
+        type: "CONNECT_WEB_PROVIDER",
+        payload: {
+          provider: pendingWebProvider
+        }
       });
       if (!response.ok) {
         setError(response.error);
         return;
       }
 
-      setShowConnectKimiAction(false);
+      setShowConnectWebProviderAction(false);
     } catch (unknownError) {
-      setError(unknownError instanceof Error ? unknownError.message : "连接 Kimi 失败，请重试。");
+      setError(
+        unknownError instanceof Error
+          ? unknownError.message
+          : `连接 ${getWebProviderName(pendingWebProvider)} 失败，请重试。`
+      );
     } finally {
-      setConnectingKimi(false);
+      setConnectingWebProvider(false);
     }
   };
 
@@ -122,10 +146,17 @@ export function SummaryPage() {
       </header>
 
       {error ? <p className="status error">{error}</p> : null}
-      {showConnectKimiAction ? (
+      {showConnectWebProviderAction ? (
         <div className="inline-actions">
-          <button type="button" className="ghost-btn" onClick={connectKimi} disabled={connectingKimi}>
-            {connectingKimi ? "连接中..." : "去连接 Kimi"}
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={connectWebProvider}
+            disabled={connectingWebProvider}
+          >
+            {connectingWebProvider
+              ? "连接中..."
+              : `去连接 ${pendingWebProvider ? getWebProviderName(pendingWebProvider) : "提供商"}`}
           </button>
         </div>
       ) : null}

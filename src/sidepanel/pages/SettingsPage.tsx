@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { getTemplateLabel, PROMPT_TEMPLATES } from "../../lib/prompt";
 import { sendRuntimeMessage } from "../../lib/runtime";
-import { clearKimiTokens, getSettings, saveSettings } from "../../lib/storage";
+import { clearKimiTokens, clearQwenTokens, getSettings, saveSettings } from "../../lib/storage";
+import { getWebProviderLabel, getWebProviderName } from "../../lib/webProvider";
 import {
   CUSTOM_PROMPT_MAX_LENGTH,
   DEFAULT_SETTINGS,
   isDefaultTemplateId,
   type FetchModelsResult,
-  type KimiAuthStatus,
+  type WebProviderAuthStatus,
   type ProviderType,
   type Settings,
   type SummaryTemplateId,
-  type ThemePreference
+  type ThemePreference,
+  type WebProviderType
 } from "../../lib/types";
 
 type Status = {
@@ -54,7 +56,11 @@ function formatUpdatedAt(value: string | null): string {
 }
 
 function getProviderLabel(provider: ProviderType): string {
-  return provider === "kimi_web" ? "Kimi（免 Key）" : "OpenAI 兼容";
+  if (provider === "openai") {
+    return "OpenAI 兼容";
+  }
+
+  return getWebProviderLabel(provider);
 }
 
 export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
@@ -63,36 +69,40 @@ export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: "idle", message: "" });
-  const [kimiStatus, setKimiStatus] = useState<KimiAuthStatus>({
+  const [webProviderStatus, setWebProviderStatus] = useState<WebProviderAuthStatus>({
     connected: false,
     updatedAt: null
   });
-  const [loadingKimiStatus, setLoadingKimiStatus] = useState(false);
-  const [connectingKimi, setConnectingKimi] = useState(false);
+  const [loadingWebProviderStatus, setLoadingWebProviderStatus] = useState(false);
+  const [connectingWebProvider, setConnectingWebProvider] = useState(false);
 
-  const refreshKimiStatus = async (silent = false) => {
+  const refreshWebProviderStatus = async (provider: WebProviderType, silent = false) => {
     if (!silent) {
       setStatus({ kind: "idle", message: "" });
     }
 
-    setLoadingKimiStatus(true);
+    setLoadingWebProviderStatus(true);
     try {
-      const response = await sendRuntimeMessage<KimiAuthStatus>({
-        type: "GET_KIMI_AUTH_STATUS"
+      const response = await sendRuntimeMessage<WebProviderAuthStatus>({
+        type: "GET_WEB_PROVIDER_AUTH_STATUS",
+        payload: { provider }
       });
       if (!response.ok) {
         throw new Error(response.error);
       }
-      setKimiStatus(response.data);
+      setWebProviderStatus(response.data);
     } catch (error) {
       if (!silent) {
         setStatus({
           kind: "error",
-          message: error instanceof Error ? error.message : "读取 Kimi 连接状态失败，请重试。"
+          message:
+            error instanceof Error
+              ? error.message
+              : `读取 ${getWebProviderName(provider)} 连接状态失败，请重试。`
         });
       }
     } finally {
-      setLoadingKimiStatus(false);
+      setLoadingWebProviderStatus(false);
     }
   };
 
@@ -102,6 +112,9 @@ export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
         const settings = await getSettings();
         setForm(settings);
         onThemePreferenceChange?.(settings.themePreference);
+        if (settings.provider !== "openai") {
+          await refreshWebProviderStatus(settings.provider, true);
+        }
       } catch (error) {
         setStatus({
           kind: "error",
@@ -109,9 +122,15 @@ export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
         });
       }
     })();
-
-    void refreshKimiStatus(true);
   }, [onThemePreferenceChange]);
+
+  useEffect(() => {
+    if (form.provider === "openai") {
+      return;
+    }
+
+    void refreshWebProviderStatus(form.provider, true);
+  }, [form.provider]);
 
   const canFetchModels = useMemo(() => {
     if (form.provider !== "openai") {
@@ -287,58 +306,72 @@ export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
     }
   };
 
-  const onConnectKimi = async () => {
-    setConnectingKimi(true);
+  const onConnectWebProvider = async (provider: WebProviderType) => {
+    setConnectingWebProvider(true);
     setStatus({ kind: "idle", message: "" });
     try {
-      const response = await sendRuntimeMessage<KimiAuthStatus>({
-        type: "CONNECT_KIMI"
+      const response = await sendRuntimeMessage<WebProviderAuthStatus>({
+        type: "CONNECT_WEB_PROVIDER",
+        payload: { provider }
       });
       if (!response.ok) {
         throw new Error(response.error);
       }
 
-      setKimiStatus(response.data);
+      setWebProviderStatus(response.data);
       setStatus({
         kind: "success",
-        message: `Kimi 已连接，更新时间：${formatUpdatedAt(response.data.updatedAt)}。`
+        message: `${getWebProviderName(provider)} 已连接，更新时间：${formatUpdatedAt(response.data.updatedAt)}。`
       });
     } catch (error) {
       setStatus({
         kind: "error",
-        message: error instanceof Error ? error.message : "连接 Kimi 失败，请重试。"
+        message:
+          error instanceof Error
+            ? error.message
+            : `连接 ${getWebProviderName(provider)} 失败，请重试。`
       });
     } finally {
-      setConnectingKimi(false);
+      setConnectingWebProvider(false);
     }
   };
 
-  const onDisconnectKimi = async () => {
+  const onDisconnectWebProvider = async (provider: WebProviderType) => {
     setStatus({ kind: "idle", message: "" });
     try {
-      await clearKimiTokens();
-      setKimiStatus({
+      if (provider === "kimi_web") {
+        await clearKimiTokens();
+      } else {
+        await clearQwenTokens();
+      }
+
+      setWebProviderStatus({
         connected: false,
         updatedAt: null
       });
       setStatus({
         kind: "success",
-        message: "已断开 Kimi 连接。"
+        message: `已断开 ${getWebProviderName(provider)} 连接。`
       });
     } catch (error) {
       setStatus({
         kind: "error",
-        message: error instanceof Error ? error.message : "断开 Kimi 失败，请重试。"
+        message:
+          error instanceof Error
+            ? error.message
+            : `断开 ${getWebProviderName(provider)} 失败，请重试。`
       });
     }
   };
+
+  const currentWebProvider: WebProviderType = form.provider === "openai" ? "kimi_web" : form.provider;
 
   return (
     <section className="panel settings-panel">
       <header className="panel-head">
         <div>
           <h2>接口与偏好设置</h2>
-          <p>支持 OpenAI 兼容接口与 Kimi 免 Key 两种模式，模板与主题设置通用。</p>
+          <p>支持 OpenAI 兼容接口、Kimi 免 Key 与 Qwen 国际版免 Key，模板与主题设置通用。</p>
         </div>
       </header>
 
@@ -353,6 +386,7 @@ export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
             >
               <option value="openai">OpenAI 兼容</option>
               <option value="kimi_web">Kimi（免 Key）</option>
+              <option value="qwen_web">Qwen 国际版（免 Key）</option>
             </select>
           </label>
           <p className="hint">切换后点击“保存设置”生效。</p>
@@ -413,29 +447,37 @@ export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
           </section>
         ) : (
           <section className="sub-card">
-            <h3>Kimi 连接状态</h3>
-            <p className="hint">通过 Kimi 网页登录态使用，免 API Key，本地持久化存储 token。</p>
+            <h3>{getWebProviderName(currentWebProvider)} 连接状态</h3>
+            <p className="hint">
+              {currentWebProvider === "kimi_web"
+                ? "通过 Kimi 网页登录态使用，免 API Key，本地持久化存储 token。"
+                : "通过 Qwen 国际版网页登录态使用，免 API Key，本地持久化存储 token（站点：https://chat.qwen.ai/）。"}
+            </p>
             <div className="history-tags">
-              <span className="meta-chip">状态：{kimiStatus.connected ? "已连接" : "未连接"}</span>
-              <span className="meta-chip">更新时间：{formatUpdatedAt(kimiStatus.updatedAt)}</span>
+              <span className="meta-chip">状态：{webProviderStatus.connected ? "已连接" : "未连接"}</span>
+              <span className="meta-chip">更新时间：{formatUpdatedAt(webProviderStatus.updatedAt)}</span>
             </div>
 
             <div className="inline-actions">
               <button
                 type="button"
                 className="ghost-btn"
-                onClick={onConnectKimi}
-                disabled={connectingKimi}
+                onClick={() => void onConnectWebProvider(currentWebProvider)}
+                disabled={connectingWebProvider}
               >
-                {connectingKimi ? "连接中..." : kimiStatus.connected ? "重新连接 Kimi" : "连接 Kimi"}
+                {connectingWebProvider
+                  ? "连接中..."
+                  : webProviderStatus.connected
+                    ? `重新连接 ${getWebProviderName(currentWebProvider)}`
+                    : `连接 ${getWebProviderName(currentWebProvider)}`}
               </button>
               <button
                 type="button"
                 className="ghost-btn"
-                onClick={() => void refreshKimiStatus()}
-                disabled={loadingKimiStatus || connectingKimi}
+                onClick={() => void refreshWebProviderStatus(currentWebProvider)}
+                disabled={loadingWebProviderStatus || connectingWebProvider}
               >
-                {loadingKimiStatus ? "刷新中..." : "刷新状态"}
+                {loadingWebProviderStatus ? "刷新中..." : "刷新状态"}
               </button>
             </div>
 
@@ -443,8 +485,8 @@ export function SettingsPage({ onThemePreferenceChange }: SettingsPageProps) {
               <button
                 type="button"
                 className="ghost-btn"
-                onClick={onDisconnectKimi}
-                disabled={!kimiStatus.connected}
+                onClick={() => void onDisconnectWebProvider(currentWebProvider)}
+                disabled={!webProviderStatus.connected}
               >
                 断开连接
               </button>

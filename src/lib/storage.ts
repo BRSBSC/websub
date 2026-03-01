@@ -10,6 +10,7 @@ import {
   type DefaultTemplateId,
   type KimiAuthStatus,
   type KimiTokens,
+  type QwenTokens,
   type Settings,
   type SummaryRecord
 } from "./types";
@@ -17,6 +18,7 @@ import {
 const SETTINGS_KEY = "settings";
 const HISTORY_KEY = "summary_history";
 const KIMI_TOKENS_KEY = "kimi_tokens";
+const QWEN_TOKENS_KEY = "qwen_tokens";
 
 function storageGet<T extends string>(keys: T[]): Promise<Record<T, unknown>> {
   return new Promise((resolve, reject) => {
@@ -273,6 +275,76 @@ export async function getKimiAuthStatus(): Promise<KimiAuthStatus> {
 
   return {
     connected: tokens.refreshToken.trim().length > 0,
+    updatedAt: tokens.updatedAt
+  };
+}
+
+function sanitizeQwenTokens(value: unknown): QwenTokens | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<QwenTokens>;
+  const token = typeof candidate.token === "string"
+    ? candidate.token.trim()
+    : "";
+  if (!token) {
+    return null;
+  }
+
+  const updatedAt = typeof candidate.updatedAt === "string" && candidate.updatedAt.trim().length > 0
+    ? candidate.updatedAt
+    : new Date().toISOString();
+
+  const account = typeof candidate.account === "string" && candidate.account.trim().length > 0
+    ? candidate.account.trim()
+    : undefined;
+
+  return {
+    token,
+    updatedAt,
+    account
+  };
+}
+
+export async function getQwenTokens(): Promise<QwenTokens | null> {
+  const result = await storageGet([QWEN_TOKENS_KEY]);
+  return sanitizeQwenTokens(result[QWEN_TOKENS_KEY]);
+}
+
+export async function saveQwenTokens(input: {
+  token: string;
+  account?: string;
+}): Promise<QwenTokens> {
+  const token = input.token.trim();
+  if (!token) {
+    throw new AppError("Qwen 登录状态无效，请重新连接。", { code: "AUTH" });
+  }
+
+  const tokenState: QwenTokens = {
+    token,
+    account: input.account?.trim() ? input.account.trim() : undefined,
+    updatedAt: new Date().toISOString()
+  };
+  await storageSet({ [QWEN_TOKENS_KEY]: tokenState });
+  return tokenState;
+}
+
+export async function clearQwenTokens(): Promise<void> {
+  await storageRemove([QWEN_TOKENS_KEY]);
+}
+
+export async function getQwenAuthStatus(): Promise<KimiAuthStatus> {
+  const tokens = await getQwenTokens();
+  if (!tokens) {
+    return {
+      connected: false,
+      updatedAt: null
+    };
+  }
+
+  return {
+    connected: tokens.token.trim().length > 0,
     updatedAt: tokens.updatedAt
   };
 }

@@ -8,7 +8,8 @@ export const DEFAULT_TEMPLATE_IDS = [
 export type DefaultTemplateId = (typeof DEFAULT_TEMPLATE_IDS)[number];
 export type SummaryTemplateId = DefaultTemplateId | "custom";
 export type ThemePreference = "system" | "light" | "dark";
-export type ProviderType = "openai" | "kimi_web";
+export type WebProviderType = "kimi_web" | "qwen_web";
+export type ProviderType = "openai" | WebProviderType;
 
 export type PromptTemplate = {
   id: SummaryTemplateId;
@@ -53,15 +54,31 @@ export type KimiTokens = {
   updatedAt: string;
 };
 
-export type KimiAuthStatus = {
+export type QwenTokens = {
+  token: string;
+  updatedAt: string;
+  account?: string;
+};
+
+export type WebProviderAuthStatus = {
   connected: boolean;
   updatedAt: string | null;
 };
+
+export type KimiAuthStatus = WebProviderAuthStatus;
 
 export type RuntimeMessage =
   | { type: "OPEN_SIDE_PANEL" }
   | { type: "CONNECT_KIMI" }
   | { type: "GET_KIMI_AUTH_STATUS" }
+  | {
+      type: "CONNECT_WEB_PROVIDER";
+      payload: { provider: WebProviderType };
+    }
+  | {
+      type: "GET_WEB_PROVIDER_AUTH_STATUS";
+      payload: { provider: WebProviderType };
+    }
   | {
       type: "FETCH_MODELS";
       payload: { apiBaseUrl: string; apiKey: string };
@@ -114,5 +131,9 @@ export function isThemePreference(value: string): value is ThemePreference {
 }
 
 export function isProviderType(value: string): value is ProviderType {
-  return value === "openai" || value === "kimi_web";
+  return value === "openai" || value === "kimi_web" || value === "qwen_web";
+}
+
+export function isWebProviderType(value: string): value is WebProviderType {
+  return value === "kimi_web" || value === "qwen_web";
 }

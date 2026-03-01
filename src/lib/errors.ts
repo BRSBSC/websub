@@ -54,7 +54,7 @@ export function createHttpError(status: number, detail?: string): AppError {
 function defaultMessageForCode(code: AppErrorCode): string {
   switch (code) {
     case "AUTH":
-      return "登录状态失效，请重新连接 Kimi。";
+      return "登录状态失效，请重新连接。";
     case "TIMEOUT":
       return "请求超时，请重试。";
     case "NETWORK":
