@@ -28,6 +28,11 @@ function buildKimiUserContent(pageContent: PageContent, settings: Settings): str
 
   return [
     "请严格遵循以下要求进行网页总结。",
+    "输出格式要求（必须遵守）：",
+    "1) 使用标准 Markdown。",
+    "2) 标题必须写成 `## 标题`（# 后要有空格）。",
+    "3) 用有序/无序列表表达要点，不要使用表格语法（不要用 `|` 组织表格）。",
+    "4) 段落之间空一行，避免大段连续文本。",
     "【系统要求】",
     systemPrompt,
     "【用户请求】",

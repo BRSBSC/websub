@@ -3,7 +3,7 @@ import type { ManifestV3Export } from "@crxjs/vite-plugin";
 const manifest: ManifestV3Export = {
   manifest_version: 3,
   name: "网页总结助手",
-  version: "0.1.0",
+  version: "0.2.0",
   description: "一键总结当前网页正文，支持多模板与自定义提示词。",
   minimum_chrome_version: "114",
   permissions: ["storage", "activeTab", "scripting", "sidePanel", "tabs"],

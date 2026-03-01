@@ -28,27 +28,33 @@ jobs:
       - name: Build extension
         run: npm run build
 
-      - name: Pack artifact
-        id: pack
+      - name: Compute release metadata
+        id: meta
         run: |
+          BASE_VERSION="$(node -p "require('./package.json').version")"
           RUN_NUMBER_PADDED="$(printf "%08d" "${GITHUB_RUN_NUMBER}")"
-          TAG="auto-r${RUN_NUMBER_PADDED}-${GITHUB_SHA::7}"
+          TAG="v${BASE_VERSION}-r${RUN_NUMBER_PADDED}"
           ZIP="websum-${TAG}.zip"
-          (cd dist && zip -r "../$ZIP" .)
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Pack artifact
+        run: |
+          ZIP="${{ steps.meta.outputs.zip }}"
+          (cd dist && zip -r "../$ZIP" .)
 
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.pack.outputs.tag }}"
-          ZIP="${{ steps.pack.outputs.zip }}"
+          TAG="${{ steps.meta.outputs.tag }}"
+          ZIP="${{ steps.meta.outputs.zip }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$ZIP" --clobber
           else
             gh release create "$TAG" "$ZIP" \
               --title "$TAG" \
-              --notes "Automated release for commit ${GITHUB_SHA}" \
+              --notes "Automated release ${TAG} for commit ${GITHUB_SHA}" \
               --target "${GITHUB_SHA}"
           fi

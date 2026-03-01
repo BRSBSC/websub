@@ -1,6 +1,7 @@
 import type { AnchorHTMLAttributes } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { normalizeSummaryMarkdown } from "../../lib/markdown";
 
 export type MarkdownContentProps = {
   markdown: string;
@@ -9,6 +10,7 @@ export type MarkdownContentProps = {
 
 export function MarkdownContent({ markdown, className }: MarkdownContentProps) {
   const rootClassName = className ? `markdown-body ${className}` : "markdown-body";
+  const normalizedMarkdown = normalizeSummaryMarkdown(markdown);
 
   return (
     <div className={rootClassName}>
@@ -27,7 +29,7 @@ export function MarkdownContent({ markdown, className }: MarkdownContentProps) {
           }
         }}
       >
-        {markdown}
+        {normalizedMarkdown}
       </ReactMarkdown>
     </div>
   );

@@ -9,7 +9,7 @@
   - `OpenAI 兼容 API`（`API Base URL + API Key + model`）
   - `Kimi（免 Key）`（通过 Kimi 网页登录态 token）
 - 支持调用 `GET /v1/models` 拉取 OpenAI 兼容模型列表
-- 支持 5 个默认总结模板 + 自定义系统提示词（最多 2000 字符）
+- 支持 4 个默认总结模板 + 自定义系统提示词（最多 2000 字符）
 - 总结结果支持 Markdown / GFM 渲染
 - 自动保存最近 10 条总结历史（含提供商信息）
 - 支持浅色/深色/跟随系统主题

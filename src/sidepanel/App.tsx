@@ -111,7 +111,7 @@ export default function App() {
           <span className="theme-badge">主题：{currentThemeLabel}</span>
         </div>
         <h1>网页总结助手</h1>
-        <p>整页一键总结，支持模板切换、历史追溯与深浅主题。</p>
+        <p>提炼网页核心信息，帮助你快速完成阅读与判断。</p>
       </header>
 
       <nav className="segment-nav" aria-label="功能页签">

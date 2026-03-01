@@ -1,5 +1,4 @@
 export const DEFAULT_TEMPLATE_IDS = [
-  "tldr_5_bullets",
   "short_2sent_3bullets",
   "detailed_bg_terms",
   "detailed_chapter",
@@ -92,8 +91,8 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   model: "",
   outputLanguage: "zh-CN",
-  summaryTemplateId: "tldr_5_bullets",
-  lastDefaultTemplateId: "tldr_5_bullets",
+  summaryTemplateId: "short_2sent_3bullets",
+  lastDefaultTemplateId: "short_2sent_3bullets",
   customSystemPrompt: "",
   themePreference: "system"
 };

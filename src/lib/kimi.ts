@@ -1,4 +1,5 @@
 import { AppError, createHttpError } from "./errors";
+import { normalizeSummaryMarkdown } from "./markdown";
 import type { KimiTokens } from "./types";
 
 const KIMI_ORIGIN = "https://www.kimi.com";
@@ -38,6 +39,23 @@ type SendMessageStreamInput = {
   onAuthInvalid: () => Promise<void> | void;
 };
 
+type StreamExtraction = {
+  text: string;
+  role: string;
+  event: string;
+};
+
+function buildKimiHeaders(token?: string): Headers {
+  const headers = new Headers();
+  headers.set("x-msh-platform", "web");
+  headers.set("x-msh-version", "1.0.0");
+  headers.set("R-Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+  if (token?.trim()) {
+    headers.set("Authorization", `Bearer ${token.trim()}`);
+  }
+  return headers;
+}
+
 function ensureAuthError(status?: number): AppError {
   return new AppError(KIMI_AUTH_ERROR_MESSAGE, {
     code: "AUTH",
@@ -45,8 +63,19 @@ function ensureAuthError(status?: number): AppError {
   });
 }
 
+function isAuthLikeError(error: unknown): boolean {
+  return (
+    error instanceof AppError &&
+    (error.code === "AUTH" || error.status === 401 || error.status === 403)
+  );
+}
+
 function normalizeToken(input: unknown): string {
   return typeof input === "string" ? input.trim() : "";
+}
+
+function asRawText(input: unknown): string {
+  return typeof input === "string" ? input : "";
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
@@ -119,13 +148,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   }
 
   const response = await fetchWithTimeout(`${KIMI_ORIGIN}/api/auth/token/refresh`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      refresh_token: safeRefreshToken
-    })
+    method: "GET",
+    headers: buildKimiHeaders(safeRefreshToken)
   });
 
   if (response.status === 401 || response.status === 403) {
@@ -153,8 +177,11 @@ export async function requestWithAuth(input: RequestWithAuthInput): Promise<Resp
   let currentTokens = { ...input.tokens };
 
   const execute = async (accessToken: string): Promise<Response> => {
-    const headers = new Headers(input.init.headers);
-    headers.set("Authorization", `Bearer ${accessToken}`);
+    const headers = buildKimiHeaders(accessToken);
+    const originHeaders = new Headers(input.init.headers);
+    originHeaders.forEach((value, key) => {
+      headers.set(key, value);
+    });
     return fetchWithTimeout(`${KIMI_ORIGIN}${input.path}`, {
       ...input.init,
       headers
@@ -174,9 +201,12 @@ export async function requestWithAuth(input: RequestWithAuthInput): Promise<Resp
   if (!currentTokens.accessToken) {
     try {
       await refreshOnce();
-    } catch {
-      await input.onAuthInvalid();
-      throw ensureAuthError(401);
+    } catch (error) {
+      if (isAuthLikeError(error)) {
+        await input.onAuthInvalid();
+        throw ensureAuthError(401);
+      }
+      throw error;
     }
   }
 
@@ -187,9 +217,12 @@ export async function requestWithAuth(input: RequestWithAuthInput): Promise<Resp
 
   try {
     await refreshOnce();
-  } catch {
-    await input.onAuthInvalid();
-    throw ensureAuthError(401);
+  } catch (error) {
+    if (isAuthLikeError(error)) {
+      await input.onAuthInvalid();
+      throw ensureAuthError(401);
+    }
+    throw error;
   }
 
   response = await execute(currentTokens.accessToken ?? "");
@@ -308,12 +341,12 @@ function extractStreamText(payload: unknown): string {
 
   const data = payload as JsonRecord;
   const direct = [
-    normalizeToken(data.text),
-    normalizeToken(data.delta),
-    normalizeToken(data.content),
-    normalizeToken(data.reply)
-  ].find(Boolean);
-  if (direct) {
+    asRawText(data.text),
+    asRawText(data.delta),
+    asRawText(data.content),
+    asRawText(data.reply)
+  ].find((item) => item.length > 0);
+  if (direct && direct.length > 0) {
     return direct;
   }
 
@@ -325,11 +358,11 @@ function extractStreamText(payload: unknown): string {
     }
 
     const nestedText = [
-      normalizeToken((nested as JsonRecord).text),
-      normalizeToken((nested as JsonRecord).delta),
-      normalizeToken((nested as JsonRecord).content)
-    ].find(Boolean);
-    if (nestedText) {
+      asRawText((nested as JsonRecord).text),
+      asRawText((nested as JsonRecord).delta),
+      asRawText((nested as JsonRecord).content)
+    ].find((item) => item.length > 0);
+    if (nestedText && nestedText.length > 0) {
       return nestedText;
     }
   }
@@ -344,16 +377,16 @@ function extractStreamText(payload: unknown): string {
       const choiceData = choice as JsonRecord;
       const fromDelta = choiceData.delta;
       if (fromDelta && typeof fromDelta === "object") {
-        const deltaText = normalizeToken((fromDelta as JsonRecord).content);
-        if (deltaText) {
+        const deltaText = asRawText((fromDelta as JsonRecord).content);
+        if (deltaText.length > 0) {
           return deltaText;
         }
       }
 
       const fromMessage = choiceData.message;
       if (fromMessage && typeof fromMessage === "object") {
-        const messageText = normalizeToken((fromMessage as JsonRecord).content);
-        if (messageText) {
+        const messageText = asRawText((fromMessage as JsonRecord).content);
+        if (messageText.length > 0) {
           return messageText;
         }
       }
@@ -363,12 +396,207 @@ function extractStreamText(payload: unknown): string {
   return "";
 }
 
-async function collectStreamContent(response: Response): Promise<string> {
+function extractStreamRole(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+
+  const data = payload as JsonRecord;
+  const roleCandidates = [
+    normalizeToken(data.role),
+    normalizeToken((data.data as JsonRecord | undefined)?.role),
+    normalizeToken((data.message as JsonRecord | undefined)?.role),
+    normalizeToken((data.delta as JsonRecord | undefined)?.role),
+    normalizeToken((data.result as JsonRecord | undefined)?.role)
+  ].filter(Boolean);
+  if (roleCandidates.length > 0) {
+    return roleCandidates[0].toLowerCase();
+  }
+
+  const choices = data.choices;
+  if (Array.isArray(choices)) {
+    for (const choice of choices) {
+      if (!choice || typeof choice !== "object") {
+        continue;
+      }
+
+      const choiceData = choice as JsonRecord;
+      const choiceRole = normalizeToken((choiceData.delta as JsonRecord | undefined)?.role)
+        || normalizeToken((choiceData.message as JsonRecord | undefined)?.role)
+        || normalizeToken(choiceData.role);
+      if (choiceRole) {
+        return choiceRole.toLowerCase();
+      }
+    }
+  }
+
+  return "";
+}
+
+function extractStreamEvent(payload: unknown, sseEventName: string): string {
+  if (sseEventName.trim()) {
+    return sseEventName.trim().toLowerCase();
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+
+  const data = payload as JsonRecord;
+  return (
+    normalizeToken(data.event).toLowerCase()
+    || normalizeToken((data.data as JsonRecord | undefined)?.event).toLowerCase()
+    || normalizeToken(data.type).toLowerCase()
+  );
+}
+
+function extractStreamPiece(payload: unknown, sseEventName: string): StreamExtraction {
+  return {
+    text: extractStreamText(payload),
+    role: extractStreamRole(payload),
+    event: extractStreamEvent(payload, sseEventName)
+  };
+}
+
+function findOverlapSuffixPrefix(current: string, next: string): number {
+  const max = Math.min(current.length, next.length);
+  for (let len = max; len > 0; len -= 1) {
+    if (current.slice(-len) === next.slice(0, len)) {
+      return len;
+    }
+  }
+  return 0;
+}
+
+function mergeStreamChunk(current: string, next: string): string {
+  if (!next) {
+    return current;
+  }
+  if (!current) {
+    return next;
+  }
+
+  if (next === current) {
+    return current;
+  }
+
+  // Some providers stream cumulative full text; keep the newest full chunk.
+  if (next.startsWith(current)) {
+    return next;
+  }
+  if (current.startsWith(next)) {
+    return current;
+  }
+
+  // Avoid duplication caused by overlapping chunk boundaries.
+  const overlap = findOverlapSuffixPrefix(current, next);
+  if (overlap > 0) {
+    return `${current}${next.slice(overlap)}`;
+  }
+
+  return `${current}${next}`;
+}
+
+function shouldUseAsAssistantChunk(piece: StreamExtraction): boolean {
+  const role = piece.role;
+  if (role === "assistant" || role === "model" || role === "bot") {
+    return true;
+  }
+  if (role === "user" || role === "system") {
+    return false;
+  }
+
+  const eventName = piece.event;
+  if (!eventName) {
+    return false;
+  }
+
+  if (/(request|req|input|prompt|user)/i.test(eventName)) {
+    return false;
+  }
+  if (/(completion|cmpl|assistant|reply|delta|token|output|answer)/i.test(eventName)) {
+    return true;
+  }
+
+  return false;
+}
+
+function stripPromptEcho(text: string, prompt: string): string {
+  let output = text.trim();
+  const cleanPrompt = prompt.trim();
+  if (!output) {
+    return output;
+  }
+
+  if (cleanPrompt && output.includes(cleanPrompt)) {
+    output = output.split(cleanPrompt).join("").trim();
+  }
+
+  const noisyPrefixes = [
+    "请严格遵循以下要求进行网页总结。",
+    "【系统要求】",
+    "【用户请求】",
+    "请总结以下网页内容："
+  ];
+  for (const prefix of noisyPrefixes) {
+    if (output.startsWith(prefix)) {
+      const lastIdx = output.lastIndexOf(prefix);
+      if (lastIdx > 0) {
+        output = output.slice(lastIdx).trim();
+      }
+    }
+  }
+
+  return output;
+}
+
+function normalizeMarkdownLayout(text: string): string {
+  let output = text.replace(/\r\n/g, "\n");
+
+  // Ensure heading markers are valid Markdown: `## Heading`
+  output = output.replace(/^(#{1,6})([^\s#])/gm, "$1 $2");
+  output = output.replace(/[ \t]+\n/g, "\n");
+
+  // Convert malformed single-line "table-like" output into readable list items.
+  output = output
+    .split("\n")
+    .map((line) => {
+      const pipeCount = (line.match(/\|/g) ?? []).length;
+      if (pipeCount < 4) {
+        return line;
+      }
+
+      const isTableSeparator = /^\s*\|?\s*:?-{3,}/.test(line);
+      if (isTableSeparator) {
+        return line;
+      }
+
+      const parts = line
+        .split("|")
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+      if (parts.length < 2) {
+        return line;
+      }
+
+      return `- ${parts.join("； ")}`;
+    })
+    .join("\n");
+
+  // Keep visual rhythm around headings.
+  output = output.replace(/([^\n])\n(#{1,6}\s)/g, "$1\n\n$2");
+  output = output.replace(/^(#{1,6}\s[^\n]+)\n(?!\n|#|- |\d+\. |\|)/gm, "$1\n\n");
+  output = output.replace(/\n{3,}/g, "\n\n");
+
+  return output.trim();
+}
+
+async function collectStreamContent(response: Response, prompt: string): Promise<string> {
   if (!response.body) {
     const payload = await parseJsonSafe(response);
     const text = extractStreamText(payload);
     if (text) {
-      return text;
+      return normalizeSummaryMarkdown(stripPromptEcho(text, prompt));
     }
     throw new AppError("Kimi 返回内容为空，请重试。", { code: "RUNTIME" });
   }
@@ -377,7 +605,9 @@ async function collectStreamContent(response: Response): Promise<string> {
   const decoder = new TextDecoder();
   let done = false;
   let buffer = "";
-  let finalText = "";
+  let allText = "";
+  let assistantText = "";
+  let currentEventName = "";
 
   while (!done) {
     const { value, done: readerDone } = await reader.read();
@@ -389,7 +619,17 @@ async function collectStreamContent(response: Response): Promise<string> {
 
     for (const rawLine of lines) {
       const line = rawLine.trim();
-      if (!line || !line.startsWith("data:")) {
+      if (!line) {
+        currentEventName = "";
+        continue;
+      }
+
+      if (line.startsWith("event:")) {
+        currentEventName = line.slice(6).trim();
+        continue;
+      }
+
+      if (!line.startsWith("data:")) {
         continue;
       }
 
@@ -400,7 +640,15 @@ async function collectStreamContent(response: Response): Promise<string> {
 
       try {
         const payload = JSON.parse(payloadText) as unknown;
-        finalText += extractStreamText(payload);
+        const piece = extractStreamPiece(payload, currentEventName);
+        if (!piece.text) {
+          continue;
+        }
+
+        allText = mergeStreamChunk(allText, piece.text);
+        if (shouldUseAsAssistantChunk(piece)) {
+          assistantText = mergeStreamChunk(assistantText, piece.text);
+        }
       } catch {
         // Ignore malformed stream chunks.
       }
@@ -412,14 +660,22 @@ async function collectStreamContent(response: Response): Promise<string> {
     const payloadText = tail.slice(5).trim();
     if (payloadText && payloadText !== "[DONE]") {
       try {
-        finalText += extractStreamText(JSON.parse(payloadText) as unknown);
+        const payload = JSON.parse(payloadText) as unknown;
+        const piece = extractStreamPiece(payload, currentEventName);
+        if (piece.text) {
+          allText = mergeStreamChunk(allText, piece.text);
+          if (shouldUseAsAssistantChunk(piece)) {
+            assistantText = mergeStreamChunk(assistantText, piece.text);
+          }
+        }
       } catch {
         // Ignore malformed trailing chunk.
       }
     }
   }
 
-  return finalText.trim();
+  const primary = assistantText.trim().length > 0 ? assistantText : allText;
+  return normalizeSummaryMarkdown(stripPromptEcho(primary, prompt));
 }
 
 export async function sendMessageStream(input: SendMessageStreamInput): Promise<string> {
@@ -458,7 +714,7 @@ export async function sendMessageStream(input: SendMessageStreamInput): Promise<
       throw createHttpError(response.status, await parseErrorDetail(response));
     }
 
-    const summary = await collectStreamContent(response);
+    const summary = await collectStreamContent(response, input.content);
     if (summary) {
       return summary;
     }

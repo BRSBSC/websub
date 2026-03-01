@@ -45,7 +45,7 @@ function closeTab(tabId: number): Promise<void> {
   });
 }
 
-function readTabRefreshToken(tabId: number): Promise<string> {
+function readTabRefreshToken(tabId: number): Promise<{ refreshToken: string; accessToken: string }> {
   return new Promise((resolve, reject) => {
     chrome.scripting.executeScript(
       {
@@ -54,9 +54,16 @@ function readTabRefreshToken(tabId: number): Promise<string> {
         func: () => {
           try {
             const token = window.localStorage.getItem("refresh_token");
-            return typeof token === "string" ? token : "";
+            const accessToken = window.localStorage.getItem("access_token");
+            return {
+              refreshToken: typeof token === "string" ? token : "",
+              accessToken: typeof accessToken === "string" ? accessToken : ""
+            };
           } catch {
-            return "";
+            return {
+              refreshToken: "",
+              accessToken: ""
+            };
           }
         }
       },
@@ -67,21 +74,29 @@ function readTabRefreshToken(tabId: number): Promise<string> {
           return;
         }
 
-        const resultToken = results?.[0]?.result;
-        resolve(typeof resultToken === "string" ? resultToken.trim() : "");
+        const raw = results?.[0]?.result as
+          | { refreshToken?: string; accessToken?: string }
+          | undefined;
+        resolve({
+          refreshToken: typeof raw?.refreshToken === "string" ? raw.refreshToken.trim() : "",
+          accessToken: typeof raw?.accessToken === "string" ? raw.accessToken.trim() : ""
+        });
       }
     );
   });
 }
 
-async function pollRefreshToken(tabId: number, timeoutMs: number): Promise<string> {
+async function pollRefreshToken(tabId: number, timeoutMs: number): Promise<{
+  refreshToken: string;
+  accessToken: string;
+}> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     try {
-      const token = await readTabRefreshToken(tabId);
-      if (token) {
-        return token;
+      const tokens = await readTabRefreshToken(tabId);
+      if (tokens.refreshToken) {
+        return tokens;
       }
     } catch {
       // Page may not be ready yet; continue polling until timeout.
@@ -90,12 +105,16 @@ async function pollRefreshToken(tabId: number, timeoutMs: number): Promise<strin
     await wait(POLL_INTERVAL_MS);
   }
 
-  return "";
+  return {
+    refreshToken: "",
+    accessToken: ""
+  };
 }
 
-async function persistRefreshToken(refreshToken: string): Promise<KimiTokens> {
+async function persistRefreshToken(refreshToken: string, accessToken?: string): Promise<KimiTokens> {
   return saveKimiTokens({
-    refreshToken
+    refreshToken,
+    accessToken
   });
 }
 
@@ -111,12 +130,12 @@ export async function ensureKimiRefreshToken(): Promise<KimiTokens> {
   });
 
   try {
-    const refreshToken = await pollRefreshToken(hiddenTab.id as number, AUTO_CONNECT_TIMEOUT_MS);
-    if (!refreshToken) {
+    const tokens = await pollRefreshToken(hiddenTab.id as number, AUTO_CONNECT_TIMEOUT_MS);
+    if (!tokens.refreshToken) {
       throw new AppError("未检测到 Kimi 登录状态，请先连接 Kimi。", { code: "AUTH" });
     }
 
-    return persistRefreshToken(refreshToken);
+    return persistRefreshToken(tokens.refreshToken, tokens.accessToken);
   } finally {
     await closeTab(hiddenTab.id as number).catch(() => undefined);
   }
@@ -128,14 +147,14 @@ export async function connectKimiInteractive(): Promise<KimiAuthStatus> {
     active: true
   });
 
-  const refreshToken = await pollRefreshToken(tab.id as number, INTERACTIVE_CONNECT_TIMEOUT_MS);
-  if (!refreshToken) {
+  const tokens = await pollRefreshToken(tab.id as number, INTERACTIVE_CONNECT_TIMEOUT_MS);
+  if (!tokens.refreshToken) {
     throw new AppError("未检测到 Kimi 登录状态，请在打开的 Kimi 页面完成登录后重试。", {
       code: "AUTH"
     });
   }
 
-  await persistRefreshToken(refreshToken);
+  await persistRefreshToken(tokens.refreshToken, tokens.accessToken);
   return getKimiAuthStatus();
 }
 

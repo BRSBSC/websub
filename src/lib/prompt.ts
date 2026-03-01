@@ -13,8 +13,7 @@ type ChatMessage = {
 };
 
 const TEMPLATE_LABELS: Record<SummaryTemplateId, string> = {
-  tldr_5_bullets: "TL;DR + 5 要点",
-  short_2sent_3bullets: "超短版（2 句 + 3 要点）",
+  short_2sent_3bullets: "快速阅读（默认）",
   detailed_bg_terms: "详细版（背景/术语）",
   detailed_chapter: "详细版（章节拆解）",
   detailed_fact_opinion: "详细版（事实/观点）",
@@ -22,8 +21,7 @@ const TEMPLATE_LABELS: Record<SummaryTemplateId, string> = {
 };
 
 const TEMPLATE_DESCRIPTIONS: Record<SummaryTemplateId, string> = {
-  tldr_5_bullets: "2-3 句 TL;DR + 5 条要点，适合日常快速阅读。",
-  short_2sent_3bullets: "2 句摘要 + 3 条核心要点，成本更低、速度更快。",
+  short_2sent_3bullets: "主要总结网页内容，以便快速阅读。",
   detailed_bg_terms: "摘要 + 背景 + 要点 + 术语 + 结论，适合学习型内容。",
   detailed_chapter: "摘要 + 章节拆解 + 结论，适合长文按段理解。",
   detailed_fact_opinion: "摘要 + 事实/观点分离 + 结论，强调信息判断。",
@@ -31,16 +29,10 @@ const TEMPLATE_DESCRIPTIONS: Record<SummaryTemplateId, string> = {
 };
 
 const DEFAULT_SYSTEM_PROMPTS: Record<DefaultTemplateId, string> = {
-  tldr_5_bullets: [
-    "你是一位专业网页内容总结助手。",
-    "请使用简体中文输出，并严格遵循格式：",
-    "1) TL;DR（2-3 句）",
-    "2) 要点（5 条，使用短句）",
-    "不要输出多余前后缀，不要编造正文中不存在的信息。"
-  ].join("\n"),
   short_2sent_3bullets: [
-    "你是一位网页内容速览助手。",
-    "请使用简体中文，输出尽可能精炼。",
+    "你是一位网页内容总结助手。",
+    "你的目标是总结网页核心信息，帮助用户快速阅读。",
+    "请使用简体中文，保持准确、精炼、易扫读。",
     "严格使用以下格式：",
     "1) 摘要（2 句）",
     "2) 核心要点（3 条）",
