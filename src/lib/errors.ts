@@ -1,5 +1,6 @@
 export type AppErrorCode =
   | "HTTP"
+  | "AUTH"
   | "TIMEOUT"
   | "NETWORK"
   | "VALIDATION"
@@ -50,9 +51,27 @@ export function createHttpError(status: number, detail?: string): AppError {
   });
 }
 
+function defaultMessageForCode(code: AppErrorCode): string {
+  switch (code) {
+    case "AUTH":
+      return "登录状态失效，请重新连接 Kimi。";
+    case "TIMEOUT":
+      return "请求超时，请重试。";
+    case "NETWORK":
+      return "网络连接失败，请检查网络后重试。";
+    case "VALIDATION":
+      return "请求参数不完整，请检查后重试。";
+    case "RUNTIME":
+      return "扩展运行异常，请刷新页面后重试。";
+    default:
+      return "发生未知错误，请稍后重试。";
+  }
+}
+
 export function toUserMessage(error: unknown): string {
   if (error instanceof AppError) {
-    return error.message;
+    const directMessage = error.message.trim();
+    return directMessage.length > 0 ? directMessage : defaultMessageForCode(error.code);
   }
 
   if (error instanceof DOMException && error.name === "AbortError") {

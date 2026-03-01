@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toPlainPreview } from "../../lib/markdown";
 import { getTemplateLabel } from "../../lib/prompt";
 import { getSummaryHistory } from "../../lib/storage";
-import type { SummaryRecord } from "../../lib/types";
+import type { ProviderType, SummaryRecord } from "../../lib/types";
 import { MarkdownContent } from "../components/MarkdownContent";
 
 function formatTime(isoString: string): string {
@@ -11,6 +11,10 @@ function formatTime(isoString: string): string {
     return isoString;
   }
   return date.toLocaleString("zh-CN");
+}
+
+function getProviderLabel(provider: ProviderType): string {
+  return provider === "kimi_web" ? "Kimi" : "OpenAI";
 }
 
 export function HistoryPage() {
@@ -79,6 +83,7 @@ export function HistoryPage() {
                 <strong>{record.title || "未命名页面"}</strong>
                 <div className="history-tags">
                   <span className="meta-chip">{formatTime(record.createdAt)}</span>
+                  <span className="meta-chip">提供商：{getProviderLabel(record.provider)}</span>
                   <span className="meta-chip">模型：{record.model}</span>
                   <span className="meta-chip">模板：{getTemplateLabel(record.templateId)}</span>
                 </div>

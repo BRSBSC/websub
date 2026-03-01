@@ -4,15 +4,19 @@ import {
   DEFAULT_SETTINGS,
   MAX_HISTORY_RECORDS,
   isDefaultTemplateId,
+  isProviderType,
   isSummaryTemplateId,
   isThemePreference,
   type DefaultTemplateId,
+  type KimiAuthStatus,
+  type KimiTokens,
   type Settings,
   type SummaryRecord
 } from "./types";
 
 const SETTINGS_KEY = "settings";
 const HISTORY_KEY = "summary_history";
+const KIMI_TOKENS_KEY = "kimi_tokens";
 
 function storageGet<T extends string>(keys: T[]): Promise<Record<T, unknown>> {
   return new Promise((resolve, reject) => {
@@ -42,6 +46,20 @@ function storageSet(data: Record<string, unknown>): Promise<void> {
   });
 }
 
+function storageRemove(keys: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.remove(keys, () => {
+      const runtimeError = chrome.runtime.lastError;
+      if (runtimeError) {
+        reject(new AppError("清理本地存储失败。", { code: "RUNTIME" }));
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
 function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
@@ -51,6 +69,14 @@ function normalizeCustomSystemPrompt(prompt: string | undefined): string {
   return input.length > CUSTOM_PROMPT_MAX_LENGTH
     ? input.slice(0, CUSTOM_PROMPT_MAX_LENGTH)
     : input;
+}
+
+function resolveProvider(value: Partial<Settings> | undefined): Settings["provider"] {
+  const rawProvider = typeof value?.provider === "string"
+    ? value.provider
+    : DEFAULT_SETTINGS.provider;
+
+  return isProviderType(rawProvider) ? rawProvider : DEFAULT_SETTINGS.provider;
 }
 
 function resolveSummaryTemplateId(value: Partial<Settings> | undefined): Settings["summaryTemplateId"] {
@@ -96,6 +122,7 @@ function sanitizeSettings(value: Partial<Settings> | undefined): Settings {
   const lastDefaultTemplateId = resolveLastDefaultTemplateId(value, summaryTemplateId);
 
   return {
+    provider: resolveProvider(value),
     apiBaseUrl: normalizeBaseUrl(value?.apiBaseUrl ?? DEFAULT_SETTINGS.apiBaseUrl),
     apiKey: (value?.apiKey ?? DEFAULT_SETTINGS.apiKey).trim(),
     model: (value?.model ?? DEFAULT_SETTINGS.model).trim(),
@@ -158,11 +185,17 @@ function normalizeSummaryRecord(value: unknown): SummaryRecord | null {
     ? (record.templateId as SummaryRecord["templateId"])
     : DEFAULT_SETTINGS.summaryTemplateId;
 
+  const rawProvider = typeof record.provider === "string"
+    ? record.provider
+    : DEFAULT_SETTINGS.provider;
+  const provider = isProviderType(rawProvider) ? rawProvider : DEFAULT_SETTINGS.provider;
+
   return {
     id: record.id,
     title: record.title,
     url: record.url,
     summary: record.summary,
+    provider,
     model: record.model,
     templateId,
     createdAt: record.createdAt
@@ -173,4 +206,73 @@ export async function addSummaryRecord(record: SummaryRecord): Promise<void> {
   const current = await getSummaryHistory();
   const next = [record, ...current].slice(0, MAX_HISTORY_RECORDS);
   await storageSet({ [HISTORY_KEY]: next });
+}
+
+function sanitizeKimiTokens(value: unknown): KimiTokens | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<KimiTokens>;
+  const refreshToken = typeof candidate.refreshToken === "string"
+    ? candidate.refreshToken.trim()
+    : "";
+  if (!refreshToken) {
+    return null;
+  }
+
+  const accessToken = typeof candidate.accessToken === "string" && candidate.accessToken.trim().length > 0
+    ? candidate.accessToken.trim()
+    : undefined;
+  const updatedAt = typeof candidate.updatedAt === "string" && candidate.updatedAt.trim().length > 0
+    ? candidate.updatedAt
+    : new Date().toISOString();
+
+  return {
+    refreshToken,
+    accessToken,
+    updatedAt
+  };
+}
+
+export async function getKimiTokens(): Promise<KimiTokens | null> {
+  const result = await storageGet([KIMI_TOKENS_KEY]);
+  return sanitizeKimiTokens(result[KIMI_TOKENS_KEY]);
+}
+
+export async function saveKimiTokens(input: {
+  refreshToken: string;
+  accessToken?: string;
+}): Promise<KimiTokens> {
+  const refreshToken = input.refreshToken.trim();
+  if (!refreshToken) {
+    throw new AppError("Kimi 登录状态无效，请重新连接。", { code: "AUTH" });
+  }
+
+  const tokenState: KimiTokens = {
+    refreshToken,
+    accessToken: input.accessToken?.trim() ? input.accessToken.trim() : undefined,
+    updatedAt: new Date().toISOString()
+  };
+  await storageSet({ [KIMI_TOKENS_KEY]: tokenState });
+  return tokenState;
+}
+
+export async function clearKimiTokens(): Promise<void> {
+  await storageRemove([KIMI_TOKENS_KEY]);
+}
+
+export async function getKimiAuthStatus(): Promise<KimiAuthStatus> {
+  const tokens = await getKimiTokens();
+  if (!tokens) {
+    return {
+      connected: false,
+      updatedAt: null
+    };
+  }
+
+  return {
+    connected: tokens.refreshToken.trim().length > 0,
+    updatedAt: tokens.updatedAt
+  };
 }

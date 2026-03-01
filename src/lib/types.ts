@@ -9,6 +9,7 @@ export const DEFAULT_TEMPLATE_IDS = [
 export type DefaultTemplateId = (typeof DEFAULT_TEMPLATE_IDS)[number];
 export type SummaryTemplateId = DefaultTemplateId | "custom";
 export type ThemePreference = "system" | "light" | "dark";
+export type ProviderType = "openai" | "kimi_web";
 
 export type PromptTemplate = {
   id: SummaryTemplateId;
@@ -18,6 +19,7 @@ export type PromptTemplate = {
 };
 
 export type Settings = {
+  provider: ProviderType;
   apiBaseUrl: string;
   apiKey: string;
   model: string;
@@ -40,13 +42,27 @@ export type SummaryRecord = {
   title: string;
   url: string;
   summary: string;
+  provider: ProviderType;
   model: string;
   templateId: SummaryTemplateId;
   createdAt: string;
 };
 
+export type KimiTokens = {
+  refreshToken: string;
+  accessToken?: string;
+  updatedAt: string;
+};
+
+export type KimiAuthStatus = {
+  connected: boolean;
+  updatedAt: string | null;
+};
+
 export type RuntimeMessage =
   | { type: "OPEN_SIDE_PANEL" }
+  | { type: "CONNECT_KIMI" }
+  | { type: "GET_KIMI_AUTH_STATUS" }
   | {
       type: "FETCH_MODELS";
       payload: { apiBaseUrl: string; apiKey: string };
@@ -71,6 +87,7 @@ export type SummarizeResult = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
+  provider: "openai",
   apiBaseUrl: "https://api.openai.com",
   apiKey: "",
   model: "",
@@ -95,4 +112,8 @@ export function isSummaryTemplateId(value: string): value is SummaryTemplateId {
 
 export function isThemePreference(value: string): value is ThemePreference {
   return value === "system" || value === "light" || value === "dark";
+}
+
+export function isProviderType(value: string): value is ProviderType {
+  return value === "openai" || value === "kimi_web";
 }

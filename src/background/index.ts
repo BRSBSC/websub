@@ -1,9 +1,12 @@
 import { AppError, toUserMessage } from "../lib/errors";
+import { connectKimiInteractive, invalidateKimiTokens } from "../lib/kimiAuth";
+import { getKimiDisplayModel, summarizeWithKimi } from "../lib/kimiSummarize";
 import { fetchModels, summarizePage } from "../lib/openai";
 import { resolveEffectiveTemplateId } from "../lib/prompt";
-import { addSummaryRecord } from "../lib/storage";
+import { addSummaryRecord, getKimiAuthStatus } from "../lib/storage";
 import type {
   FetchModelsResult,
+  KimiAuthStatus,
   PageContent,
   RuntimeMessage,
   RuntimeResponse,
@@ -17,6 +20,9 @@ type SidePanelApi = {
   setPanelBehavior?: (options: { openPanelOnActionClick: boolean }) => Promise<void>;
 };
 
+type MessageResult = FetchModelsResult | SummarizeResult | KimiAuthStatus | null;
+
+const KIMI_AUTH_INVALID_MESSAGE = "登录状态失效，请重新连接 Kimi";
 const sidePanelApi = (chrome as unknown as { sidePanel?: SidePanelApi }).sidePanel;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -39,7 +45,7 @@ chrome.runtime.onMessage.addListener(
   (
     message: RuntimeMessage,
     _sender,
-    sendResponse: (response: RuntimeResponse<FetchModelsResult | SummarizeResult | null>) => void
+    sendResponse: (response: RuntimeResponse<MessageResult>) => void
   ) => {
     void handleMessage(message)
       .then((data) => {
@@ -53,9 +59,7 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-async function handleMessage(
-  message: RuntimeMessage
-): Promise<FetchModelsResult | SummarizeResult | null> {
+async function handleMessage(message: RuntimeMessage): Promise<MessageResult> {
   switch (message.type) {
     case "OPEN_SIDE_PANEL": {
       const tab = await getActiveTab();
@@ -72,6 +76,12 @@ async function handleMessage(
     }
     case "SUMMARIZE_ACTIVE_TAB": {
       return summarizeActiveTab(message.payload.settings);
+    }
+    case "CONNECT_KIMI": {
+      return connectKimiInteractive();
+    }
+    case "GET_KIMI_AUTH_STATUS": {
+      return getKimiAuthStatus();
     }
     default: {
       throw new AppError("未知消息类型。", { code: "RUNTIME" });
@@ -99,10 +109,31 @@ async function summarizeActiveTab(settings: Settings): Promise<SummarizeResult> 
     throw new AppError("页面正文过少，无法生成可靠总结。", { code: "VALIDATION" });
   }
 
-  const summary = await summarizePage({
-    settings,
-    pageContent
-  });
+  let summary = "";
+  let model = settings.model;
+
+  if (settings.provider === "kimi_web") {
+    try {
+      summary = await summarizeWithKimi({
+        settings,
+        pageContent
+      });
+      model = getKimiDisplayModel();
+    } catch (error) {
+      if (error instanceof AppError && error.code === "AUTH") {
+        await invalidateKimiTokens().catch(() => undefined);
+        throw new AppError(KIMI_AUTH_INVALID_MESSAGE, { code: "AUTH" });
+      }
+      throw error;
+    }
+  } else {
+    summary = await summarizePage({
+      settings,
+      pageContent
+    });
+    model = settings.model;
+  }
+
   const effectiveTemplateId = resolveEffectiveTemplateId(settings);
 
   const record: SummaryRecord = {
@@ -110,7 +141,8 @@ async function summarizeActiveTab(settings: Settings): Promise<SummarizeResult> 
     title: pageContent.title,
     url: pageContent.url,
     summary,
-    model: settings.model,
+    provider: settings.provider,
+    model,
     templateId: effectiveTemplateId,
     createdAt: new Date().toISOString()
   };
